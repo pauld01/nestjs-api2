@@ -1,5 +1,5 @@
 {
-  "name": "NEST_API-2",
+  "name": "api2",
   "version": "0.0.1",
   "description": "",
   "author": "",
@@ -30,7 +30,7 @@
     "@nestjs/platform-express": "^9.0.0",
     "argon2": "^0.30.3",
     "dotenv": "^16.0.3",
-    "mongoose": "^7.0.5",
+    "mongoose": "^7.0.3",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.2.0"
@@ -42,7 +42,6 @@
     "@types/express": "^4.17.13",
     "@types/jest": "29.5.0",
     "@types/node": "18.15.11",
-    "@types/passport-jwt": "^3.0.8",
     "@types/supertest": "^2.0.11",
     "@typescript-eslint/eslint-plugin": "^5.0.0",
     "@typescript-eslint/parser": "^5.0.0",

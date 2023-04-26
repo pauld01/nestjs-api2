@@ -1,91 +1,105 @@
-/* eslint-disable prettier/prettier */
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { CreateAuthDto } from './dto/create-auth.dto';
-import { UpdateAuthDto } from './dto/update-auth.dto';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
+import { CreateUserDto } from 'src/users/dto/create-user.dto';
 import { UsersService } from 'src/users/users.service';
+import * as argon2 from 'argon2';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { CreateUserDto } from 'src/users/dto/create-user.dto';
-import * as argon2 from 'argon2'
+import { AuthDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private userService: UsersService,
+    private usersService: UsersService,
     private jwtService: JwtService,
-    private configService: ConfigService
+    private configService: ConfigService,
   ) {}
-
   async signUp(createUserDto: CreateUserDto): Promise<any> {
-    //on cherche l'existence du user dans la DB
-    const userExists = await this.userService.findByUsername(createUserDto.username);
-
-    if(userExists) {
-      throw new BadRequestException('L\'utilisateur existe déjà')
+    // Check if user exists
+    const userExists = await this.usersService.findByUsername(
+      createUserDto.name,
+    );
+    if (userExists) {
+      throw new BadRequestException('User already exists');
     }
 
+    // Hash password
     const hash = await this.hashData(createUserDto.password);
-
-    const newUser = await this.userService.create({...createUserDto, password: hash});
-
+    const newUser = await this.usersService.create({
+      ...createUserDto,
+      password: hash,
+    });
     const tokens = await this.getTokens(newUser._id, newUser.username);
-
-    await this.updateRefreshToken(newUser._id, newUser.username);
+    await this.updateRefreshToken(newUser._id, tokens.refreshToken);
+    return tokens;
   }
 
   async signIn(data: AuthDto) {
-    const user = await this.userService.findByUsername(data.username);
-
-    if(!user) {
-      throw new BadRequestException('utilisateur inconnu');
-    }
-    const passwordOk = await argon2.verify(user.password, data.password);
-
-    if(!passwordOk){
-      throw new BadRequestException('Identifiant ou mot de passe incorrect');
-    }
-    
+    // Check if user exists
+    const user = await this.usersService.findByUsername(data.username);
+    if (!user) throw new BadRequestException('User does not exist');
+    const passwordMatches = await argon2.verify(user.password, data.password);
+    if (!passwordMatches)
+      throw new BadRequestException('Password is incorrect');
     const tokens = await this.getTokens(user._id, user.username);
-    await this.updateRefreshToken(user._id, user.username);
+    await this.updateRefreshToken(user._id, tokens.refreshToken);
+    return tokens;
   }
 
   async logout(userId: string) {
-    return this.userService.update(userId, {
-      refreshToken:null
-    })
+    return this.usersService.update(userId, { refreshToken: null });
   }
 
-  hashData(data:string) {
+  async refreshTokens(userId: string, refreshToken: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user || !user.refreshToken)
+      throw new ForbiddenException('Access Denied');
+    const refreshTokenMatches = await argon2.verify(
+      user.refreshToken,
+      refreshToken,
+    );
+    if (!refreshTokenMatches) throw new ForbiddenException('Access Denied');
+    const tokens = await this.getTokens(user.id, user.username);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    return tokens;
+  }
+
+  hashData(data: string) {
     return argon2.hash(data);
   }
 
   async updateRefreshToken(userId: string, refreshToken: string) {
     const hashedRefreshToken = await this.hashData(refreshToken);
-
-    await this.userService.update(userId, {
-      refreshToken: hashedRefreshToken
-    })
+    await this.usersService.update(userId, {
+      refreshToken: hashedRefreshToken,
+    });
   }
 
   async getTokens(userId: string, username: string) {
-    //on force js à attendre 
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync({
-        sub: userId, 
-        username
-      },
-      {
-        secret: this.configService.get('JWT_ACCESS_SECRET'),
-        expiresIn: '15m',
-      }),
-      this.jwtService.signAsync({
-        sub: userId,
-        username
-      },
-      {
-        secret: this.configService.get('JWT_REFRESH_SECRET'),
-        expiresIn: '7d',
-      })
+      this.jwtService.signAsync(
+        {
+          sub: userId,
+          username,
+        },
+        {
+          secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
+          expiresIn: '15m',
+        },
+      ),
+      this.jwtService.signAsync(
+        {
+          sub: userId,
+          username,
+        },
+        {
+          secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+          expiresIn: '7d',
+        },
+      ),
     ]);
 
     return {
