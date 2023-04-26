@@ -28,11 +28,43 @@ export class AuthService {
 
     const newUser = await this.userService.create({...createUserDto, password: hash});
 
-    const tokens = await this.getTokens();
+    const tokens = await this.getTokens(newUser._id, newUser.username);
+
+    await this.updateRefreshToken(newUser._id, newUser.username);
+  }
+
+  async signIn(data: AuthDto) {
+    const user = await this.userService.findByUsername(data.username);
+
+    if(!user) {
+      throw new BadRequestException('utilisateur inconnu');
+    }
+    const passwordOk = await argon2.verify(user.password, data.password);
+
+    if(!passwordOk){
+      throw new BadRequestException('Identifiant ou mot de passe incorrect');
+    }
+    
+    const tokens = await this.getTokens(user._id, user.username);
+    await this.updateRefreshToken(user._id, user.username);
+  }
+
+  async logout(userId: string) {
+    return this.userService.update(userId, {
+      refreshToken:null
+    })
   }
 
   hashData(data:string) {
     return argon2.hash(data);
+  }
+
+  async updateRefreshToken(userId: string, refreshToken: string) {
+    const hashedRefreshToken = await this.hashData(refreshToken);
+
+    await this.userService.update(userId, {
+      refreshToken: hashedRefreshToken
+    })
   }
 
   async getTokens(userId: string, username: string) {
